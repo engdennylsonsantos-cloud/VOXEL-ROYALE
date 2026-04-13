@@ -602,7 +602,8 @@ export class GameApp {
 
   private updateScoreboard(): void {
     const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const show = this.input.isPressed("Tab");
+    // Em mobile o scoreboardVisible já é controlado pelo botão touch (não sobrescreve)
+    const show = this.isMobile ? this.scoreboardVisible : this.input.isPressed("Tab");
     if (show !== this.scoreboardVisible) {
       this.scoreboardVisible = show;
       this.scoreboardHUD.style.display = show ? "flex" : "none";

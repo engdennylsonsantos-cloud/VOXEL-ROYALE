@@ -5,10 +5,12 @@ const MAX_PLAYERS        = 15;
 const MIN_PLAYERS_TO_START = 2;
 const COUNTDOWN_SECONDS  = 15;
 
-// ── Nomes de fantasmas igual ao padrão de guest do frontend (Visitante-XXXXXX) ──
+const GHOST_PREFIXES = ["Recruta", "Agente", "Patrulheiro", "Combatente", "Caçador"];
+/** Nomes de fantasmas de lobby — distintos dos jogadores reais e dos bots de combate */
 function randomGuestName() {
-  const hex = Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, "0");
-  return `Visitante-${hex}`;
+  const prefix = GHOST_PREFIXES[Math.floor(Math.random() * GHOST_PREFIXES.length)];
+  const num = Math.floor(Math.random() * 9999).toString().padStart(4, "0");
+  return `${prefix}-${num}`;
 }
 
 // Gera IDs únicos para fantasmas do lobby
@@ -101,7 +103,7 @@ export class BattleRoom extends Room {
   onJoin(client, options = {}) {
     const displayName = typeof options.displayName === "string" && options.displayName.trim()
       ? options.displayName.trim().slice(0, 24)
-      : `Player ${this.clients.length}`;
+      : `Convidado-${Math.floor(Math.random() * 9999).toString().padStart(4, "0")}`;
 
     const spawnAngle = Math.random() * Math.PI * 2;
     const spawnDist  = 15 + Math.random() * 65;
@@ -284,19 +286,11 @@ export class BattleRoom extends Room {
       // Sala cheia
       if (total >= MAX_PLAYERS) { this._stopLobbyGhostFill(); return; }
 
-      // Nos últimos 2s: preenche tudo de uma vez
-      if (remaining <= 2) {
-        const missing = MAX_PLAYERS - total;
-        for (let i = 0; i < missing; i++) this._addLobbyGhost();
-        this._stopLobbyGhostFill();
-        return;
-      }
-
-      // Cadência progressiva:
+      // Cadência progressiva — nunca preenche tudo de uma vez:
       // > 10s restantes  → ~30% de chance de entrar 1 neste segundo
       // 6-10s restantes  → ~55% de chance
-      // ≤ 5s restantes   → sempre entra 1 por segundo
-      const chance = remaining <= 5 ? 1.0 : remaining <= 10 ? 0.55 : 0.30;
+      // ≤ 5s restantes   → ~85% de chance (sempre gradual)
+      const chance = remaining <= 5 ? 0.85 : remaining <= 10 ? 0.55 : 0.30;
       if (Math.random() < chance) this._addLobbyGhost();
     }, 1000);
   }

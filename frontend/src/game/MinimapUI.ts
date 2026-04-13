@@ -29,17 +29,26 @@ export class MinimapUI {
     this.overlay.height = MAP_PX;
     this.octx = this.overlay.getContext("2d")!;
 
-    // Contêiner
+    // Contêiner — em mobile fica menor no canto superior esquerdo (abaixo dos botões de menu)
+    const isMobile = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    const mapSize  = isMobile ? 110 : 190;
+
     this.rootElement = document.createElement("div");
     this.rootElement.className = "minimap-wrap";
     this.rootElement.style.position = "absolute";
-    this.rootElement.style.bottom = "20px";
-    this.rootElement.style.right = "20px";
-    this.rootElement.style.width = "190px";
-    this.rootElement.style.height = "190px";
-    this.rootElement.style.borderRadius = "10px";
+    if (isMobile) {
+      // Canto superior esquerdo, abaixo do botão de fullscreen (top:14px + 46px + 8px = 68px)
+      this.rootElement.style.top   = "72px";
+      this.rootElement.style.left  = "14px";
+    } else {
+      this.rootElement.style.bottom = "20px";
+      this.rootElement.style.right  = "20px";
+    }
+    this.rootElement.style.width  = `${mapSize}px`;
+    this.rootElement.style.height = `${mapSize}px`;
+    this.rootElement.style.borderRadius = "8px";
     this.rootElement.style.overflow = "hidden";
-    this.rootElement.style.border = "3px solid rgba(255,255,255,0.3)";
+    this.rootElement.style.border = "2px solid rgba(255,255,255,0.3)";
     this.rootElement.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
     
     this.canvas.style.position = "absolute";

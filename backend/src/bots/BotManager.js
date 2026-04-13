@@ -14,10 +14,12 @@
  *   LOOTING    → se move em direção a um ponto de loot
  */
 
-/** Gera nome no mesmo formato que um jogador guest normal (Visitante-XXXXXX) */
+const BOT_PREFIXES = ["Soldado", "Guerreiro", "Atirador", "Sniper", "Dragão"];
+/** Gera nome de bot distinto dos jogadores convidados */
 function randomBotGuestName() {
-  const hex = Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, "0");
-  return `Visitante-${hex}`;
+  const prefix = BOT_PREFIXES[Math.floor(Math.random() * BOT_PREFIXES.length)];
+  const num = Math.floor(Math.random() * 9999).toString().padStart(4, "0");
+  return `${prefix}-${num}`;
 }
 
 const WEAPON_IDS    = ["m9", "ak47", "m4a1", "spas12", "awp"];
