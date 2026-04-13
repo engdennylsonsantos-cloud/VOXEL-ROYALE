@@ -208,9 +208,14 @@ export class GameApp {
     this.shell.className        = "game-shell";
     this.hud.className          = "hud";
     this.instructions.className = "instructions";
-    this.instructions.innerHTML =
-      "<strong>Clique para capturar o mouse</strong>" +
-      "<span>WASD move · ESPAÇO pula · LMB atira/quebra · RMB mira · R recarrega</span>";
+    // Em mobile não mostra o aviso de pointer lock (não existe pointer lock em touch)
+    if (!this.isMobile) {
+      this.instructions.innerHTML =
+        "<strong>Clique para capturar o mouse</strong>" +
+        "<span>WASD move · ESPAÇO pula · LMB atira/quebra · RMB mira · R recarrega</span>";
+    } else {
+      this.instructions.classList.add("hidden");
+    }
     this.crosshair.className = "crosshair";
     this.hud.append(this.crosshair, this.instructions);
 
@@ -852,8 +857,10 @@ export class GameApp {
     if (this.nearbyDrop) {
       this.interactHUD.style.display = "block";
       this.interactHUD.innerHTML = `[E] Pegar ${this.nearbyDrop.itemLabel}`;
+      this.touchControls?.setInteractVisible(true, this.nearbyDrop.itemLabel);
     } else {
       this.interactHUD.style.display = "none";
+      this.touchControls?.setInteractVisible(false);
     }
 
     if (this.stormSystem.isActive) {

@@ -42,9 +42,10 @@ export class TouchControls {
   private joystickCenter = { x: 0, y: 0 };
   private lookId         : number | null = null;
   private lookPrev       = { x: 0, y: 0 };
-  private readonly knob  : HTMLDivElement;
-  private readonly base  : HTMLDivElement;
-  private btnFullscreen  : HTMLDivElement;
+  private readonly knob      : HTMLDivElement;
+  private readonly base      : HTMLDivElement;
+  private btnFullscreen      : HTMLDivElement;
+  private readonly _btnInteract: HTMLDivElement;
 
   constructor(container: HTMLElement) {
     this.element = document.createElement("div");
@@ -126,8 +127,12 @@ export class TouchControls {
     // ⚡ SPRINT — esquerda, acima da hotbar
     const btnSprint = this._btn("⚡", `bottom:${BTM + 10}px; left:20px;`,    "#e67e22", "52px", "24px");
 
-    // [E] INTERAGIR — centro, logo acima da hotbar
-    const btnInteract = this._btn("[E]", `bottom:${BTM + 10}px; left:50%; transform:translateX(-50%);`, "#2c3e50", "58px", "13px");
+    // [E] INTERAGIR — lado direito, abaixo de R e Mira (visível só quando há item próximo)
+    this._btnInteract = this._btn("⬆\nPegar", `bottom:${BTM + 174}px; right:116px;`, "#2c3e50", "52px", "11px");
+    this._btnInteract.style.display    = "none";
+    this._btnInteract.style.lineHeight = "1.2";
+    this._btnInteract.style.whiteSpace = "pre";
+    this._btnInteract.style.textAlign  = "center";
 
     // ── 5. Botões de menu (topo direita) ──────────────────────────────────
     const btnInv   = this._btn("🎒", `top:14px; right:68px;`, "rgba(0,0,0,0.5)", "46px", "22px");
@@ -136,7 +141,7 @@ export class TouchControls {
     // ── 6. Tela cheia (topo esquerda) ─────────────────────────────────────
     this.btnFullscreen = this._btn("⛶", `top:14px; left:14px;`, "rgba(0,0,0,0.6)", "46px", "22px");
 
-    [btnFire, btnJump, btnAim, btnReload, btnSprint, btnInteract,
+    [btnFire, btnJump, btnAim, btnReload, btnSprint, this._btnInteract,
      btnInv, btnScore, this.btnFullscreen]
       .forEach(b => this.element.appendChild(b));
 
@@ -157,7 +162,7 @@ export class TouchControls {
     this._wireBtn(btnJump,     () => { this.isJumpJustPressed = true; });
     this._wireBtn(btnReload,   () => { this.isReloadJustPressed = true; });
     this._wireBtn(btnSprint,   () => { this.isSprintActive = !this.isSprintActive; this._styleSprint(btnSprint); });
-    this._wireBtn(btnInteract, () => { this.isInteractJustPressed = true; });
+    this._wireBtn(this._btnInteract, () => { this.isInteractJustPressed = true; });
     this._wireBtn(btnInv,      () => { this.isInventoryJustPressed = true; });
     this._wireBtn(btnScore,
       () => { this.isScoreboardHeld = true; },
@@ -166,6 +171,12 @@ export class TouchControls {
     this._wireBtn(this.btnFullscreen, () => { void this._toggleFullscreen(); });
 
     document.addEventListener("fullscreenchange", () => { this._onFullscreenChange(); });
+  }
+
+  /** Mostra ou oculta o botão de pegar item com um label opcional */
+  setInteractVisible(visible: boolean, label = "Pegar"): void {
+    this._btnInteract.style.display = visible ? "flex" : "none";
+    if (visible) this._btnInteract.textContent = `⬆\n${label.slice(0, 8)}`;
   }
 
   clearFrameState(): void {
