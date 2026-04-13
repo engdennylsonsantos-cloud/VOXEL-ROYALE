@@ -18,9 +18,9 @@ import type { WeaponDef } from "./WeaponDefs";
 import { TouchControls } from "../ui/TouchControls";
 
 // ── Flags de debug (desabilitar para testes) ──────────────────────────────
-const DEBUG_DISABLE_MOBS  = true;   // true = sem zumbis
-const DEBUG_DISABLE_STORM = true;   // true = sem tempestade/zona
-const DEBUG_SKIP_INTRO    = true;   // true = spawn direto no chão (sem avião)
+const DEBUG_DISABLE_MOBS  = false;  // false = zumbis ativos
+const DEBUG_DISABLE_STORM = false;  // false = tempestade ativa
+const DEBUG_SKIP_INTRO    = false;  // false = intro do avião ativa
 
 // ── Física do jogador ──────────────────────────────────────────────────────
 const WALK_SPEED    = 4.3;   // m/s – velocidade próxima ao Minecraft
@@ -135,9 +135,12 @@ export class GameApp {
   private isMouseDown   = false;
   private breakCooldown = 0;
   private playerHP      = 100;
+  private playerLives   = 3;   // vidas restantes (max 3 mortes)
+  private playerDeaths  = 0;   // mortes acumuladas
   private isGameOver    = false;
-  private rescueTimer   = 60; // 60s of final storm survival to win
+  private rescueTimer   = 60;
   private minimapTimer  = 0;
+  private readonly livesHUD = document.createElement("div");
   
   private readonly damageOverlay = document.createElement("div");
   private readonly stormOverlay  = document.createElement("div");
@@ -273,7 +276,8 @@ export class GameApp {
     this.container.appendChild(this.shell);
 
     this.healthHUD.style.cssText = "font-size:24px;display:flex;gap:4px;text-shadow:0 2px 4px #000;";
-    this.playerInfoHUD.append(this.healthHUD);
+    this.livesHUD.style.cssText  = "font-size:14px;color:#ffd700;text-shadow:0 1px 3px #000;margin-top:2px;letter-spacing:2px;";
+    this.playerInfoHUD.append(this.healthHUD, this.livesHUD);
 
     // ── Interact HUD (para Drops de itens) ────────────────────────────────
     this.interactHUD.className = "interact-hud";
@@ -383,15 +387,23 @@ export class GameApp {
     });
 
     // Dano PvP: quando outro player nos atinge
-    this.multiplayer.onPlayerHit((damage, headshot, attackerId) => {
+    this.multiplayer.onPlayerHit((damage, _headshot, attackerId) => {
       this.takeDamage(damage);
       if (this.playerHP <= 0) {
         this.multiplayer.sendPlayerDied();
       }
-      // Mostra indicador direcional de dano
       const attackerSnap = this.multiplayer.getSnapshot(attackerId);
-      if (attackerSnap) {
-        this.showDamageIndicator(attackerSnap.x, attackerSnap.z);
+      if (attackerSnap) this.showDamageIndicator(attackerSnap.x, attackerSnap.z);
+    });
+
+    // Vencedor da partida anunciado pelo servidor
+    this.multiplayer.onMatchWinner((winnerSessionId, winnerName) => {
+      if (this.isGameOver) return; // já eliminado — overlay já visível
+      const isSelf = winnerSessionId === (this.multiplayer.getSelfSessionId() ?? "__none__");
+      if (isSelf) {
+        this.showFinalRanking(true);
+      } else {
+        this.showFinalRanking(false, winnerName);
       }
     });
 
@@ -423,21 +435,30 @@ export class GameApp {
   }
 
   private triggerRespawn(): void {
-    this.isGameOver = true;  // bloqueia input durante contagem
+    this.playerDeaths++;
+    this.playerLives = Math.max(0, 3 - this.playerDeaths);
+    this.isGameOver = true;
     this.controls.unlock();
+    this.multiplayer.sendPlayerDied();
 
-    // Tela de morte com contagem regressiva
+    if (this.playerLives <= 0) {
+      // Eliminado permanentemente — mostra ranking
+      this.showFinalRanking(false);
+      return;
+    }
+
+    // Ainda tem vidas — conta regressiva para respawn
     const overlay = document.createElement("div");
     overlay.id = "respawn-overlay";
-    overlay.style.cssText = "position:fixed;inset:0;background:rgba(60,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10000;color:white;font-family:sans-serif;backdrop-filter:blur(4px);";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(60,0,0,0.82);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10000;color:white;font-family:sans-serif;backdrop-filter:blur(4px);";
     overlay.innerHTML = `
-      <h1 style="font-size:5rem;margin:0;text-shadow:4px 4px 0 #000;">VOCÊ MORREU</h1>
-      <p style="font-size:1.6rem;color:#ccc;margin-top:12px;">Respawnando em <span id="respawn-countdown">3</span>s...</p>
-      <p style="font-size:1rem;color:#888;margin-top:6px;">[Modo de teste — respawn ativado]</p>
+      <h1 style="font-size:4.5rem;margin:0;text-shadow:4px 4px 0 #000;">VOCÊ MORREU</h1>
+      <p style="font-size:1.4rem;color:#ffd700;margin-top:10px;">${"🧡".repeat(this.playerLives)} ${"💀".repeat(this.playerDeaths)} — ${this.playerLives} vida(s) restante(s)</p>
+      <p style="font-size:1.5rem;color:#ccc;margin-top:8px;">Respawnando em <span id="respawn-countdown">4</span>s...</p>
     `;
     document.body.appendChild(overlay);
 
-    let count = 3;
+    let count = 4;
     const tick = setInterval(() => {
       count--;
       const el = document.getElementById("respawn-countdown");
@@ -448,6 +469,64 @@ export class GameApp {
         this._doRespawn();
       }
     }, 1000);
+  }
+
+  /** Tela de ranking final (vitória ou eliminação) */
+  showFinalRanking(isWinner: boolean, winnerName = ""): void {
+    this.isGameOver = true;
+    this.gamePhase  = isWinner ? "victory" : "gameover";
+    this.controls.unlock();
+
+    const remoteStats = this.multiplayer.getAllPlayerStats();
+    const localName   = window.localStorage.getItem("voxel-royale.player-name") ?? "Você";
+    const localEntry  = {
+      sessionId: "self", name: localName, isSelf: true,
+      kills: this.totalKills, headshots: this.headshotKills,
+      mobKills: 0, points: this.totalKills * 10 + this.headshotKills * 5,
+      isDead: !isWinner
+    };
+    const all = [localEntry, ...remoteStats].sort((a, b) => b.points - a.points);
+
+    const esc = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    const rows = all.map((p, i) => {
+      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i+1}`;
+      const selfMark = p.isSelf ? ' <span style="background:#3b82f6;border-radius:4px;padding:1px 6px;font-size:11px;">você</span>' : "";
+      const deadMark = p.isDead ? "💀" : "✅";
+      return `<tr style="background:${p.isSelf ? "rgba(59,130,246,0.15)" : "transparent"};">
+        <td style="padding:6px 10px;">${medal}</td>
+        <td style="padding:6px 10px;">${deadMark}</td>
+        <td style="padding:6px 10px;text-align:left;">${esc(p.name)}${selfMark}</td>
+        <td style="padding:6px 10px;">${p.kills}</td>
+        <td style="padding:6px 10px;">${p.headshots}</td>
+        <td style="padding:6px 10px;color:#ffd700;font-weight:700;">${p.points}</td>
+      </tr>`;
+    }).join("");
+
+    const bg    = isWinner ? "rgba(0,60,0,0.93)" : "rgba(40,0,0,0.93)";
+    const title = isWinner ? "🏆 VITÓRIA!" : "💀 ELIMINADO";
+    const sub   = isWinner
+      ? "Você é o último sobrevivente!"
+      : winnerName ? `Vencedor: <b>${esc(winnerName)}</b>` : "Você usou todas as suas vidas.";
+
+    const overlay = document.createElement("div");
+    overlay.style.cssText = `position:fixed;inset:0;background:${bg};display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10000;color:white;font-family:sans-serif;backdrop-filter:blur(6px);overflow-y:auto;padding:20px;`;
+    overlay.innerHTML = `
+      <h1 style="font-size:3.5rem;margin:0 0 6px;text-shadow:4px 4px 0 #000;">${title}</h1>
+      <p style="font-size:1.2rem;color:#ccc;margin:0 0 18px;">${sub}</p>
+      <table style="border-collapse:collapse;min-width:min(560px,90vw);background:rgba(0,0,0,0.45);border-radius:12px;overflow:hidden;font-size:0.95rem;">
+        <thead><tr style="background:rgba(255,255,255,0.08);color:#aaa;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.06em;">
+          <th style="padding:8px 10px;">#</th><th></th>
+          <th style="padding:8px 10px;text-align:left;">Jogador</th>
+          <th style="padding:8px 10px;">Kills</th><th style="padding:8px 10px;">HS</th>
+          <th style="padding:8px 10px;">Pts</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button onclick="location.reload()" style="margin-top:24px;padding:14px 36px;font-size:1.3rem;font-weight:bold;cursor:pointer;border:none;border-radius:10px;background:${isWinner ? "#ffd700" : "#f1f5f9"};color:#0f172a;box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+        Jogar Novamente
+      </button>
+    `;
+    document.body.appendChild(overlay);
   }
 
   /** Encontra ponto de spawn seguro (longe de todos os outros players/bots, mas não muito) */
@@ -514,16 +593,7 @@ export class GameApp {
   }
 
   private triggerVictory(): void {
-    this.isGameOver = true;
-    this.gamePhase = "victory";
-    this.controls.unlock();
-    const vic = document.createElement("div");
-    vic.innerHTML = `<div style="position:absolute;inset:0;background:rgba(0,50,0,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10000;color:white;font-family:sans-serif;backdrop-filter:blur(5px);">
-       <h1 style="font-size:5rem;margin:0;color:#ffdd00;text-shadow:4px 4px 0 #000;">SOBREVIVENTE DA ILHA!</h1>
-       <p style="font-size:1.8rem;color:#ccc;">O helicóptero de resgate te encontrou!</p>
-       <button onclick="location.reload()" style="margin-top:30px;padding:15px 40px;font-size:1.5rem;font-weight:bold;cursor:pointer;border:none;border-radius:10px;background:#ffdd00;color:black;box-shadow:0 4px 10px rgba(0,0,0,0.5);">Jogar Novamente</button>
-    </div>`;
-    document.body.appendChild(vic);
+    this.showFinalRanking(true);
   }
 
   private showDamageIndicator(attackerX: number, attackerZ: number): void {
@@ -670,12 +740,14 @@ export class GameApp {
   }
 
   private updateHealthHUD(): void {
-    const hearts = Math.ceil(Math.max(0, this.playerHP) / 10); // 10 corações max para 100 HP
+    const hearts = Math.ceil(Math.max(0, this.playerHP) / 10);
     let html = "";
-    for(let i=1; i<=10; i++) {
-        html += i <= hearts ? "❤️" : "🖤";
-    }
+    for (let i = 1; i <= 10; i++) html += i <= hearts ? "❤️" : "🖤";
     this.healthHUD.innerHTML = html;
+    // Vidas restantes
+    const livesLeft = Math.max(0, this.playerLives);
+    this.livesHUD.innerHTML = "💀".repeat(this.playerDeaths) + "🧡".repeat(livesLeft);
+    this.livesHUD.title = `${livesLeft} vida(s) restante(s)`;
   }
 
   // ── Cena ────────────────────────────────────────────────────────────────

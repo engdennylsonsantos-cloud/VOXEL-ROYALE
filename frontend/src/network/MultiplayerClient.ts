@@ -133,6 +133,10 @@ export class MultiplayerClient {
         });
       });
 
+      this.room.onMessage("match:winner", (payload: { sessionId: string; displayName: string }) => {
+        this.matchWinnerListener?.(payload.sessionId, payload.displayName);
+      });
+
 
 
       this.room.onMessage("player:joined", (payload) => {
@@ -330,7 +334,16 @@ export class MultiplayerClient {
 
   private playerHitListener?: (damage: number, headshot: boolean, attackerId: string) => void;
   onPlayerHit(listener: (damage: number, headshot: boolean, attackerId: string) => void): void {
-      this.playerHitListener = listener;
+    this.playerHitListener = listener;
+  }
+
+  private matchWinnerListener?: (sessionId: string, displayName: string) => void;
+  onMatchWinner(listener: (sessionId: string, displayName: string) => void): void {
+    this.matchWinnerListener = listener;
+  }
+
+  getSelfSessionId(): string | undefined {
+    return this.room?.sessionId;
   }
 
   getLobbyStatus(): LobbyStatus {

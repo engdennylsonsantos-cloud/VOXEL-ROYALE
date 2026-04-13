@@ -1,22 +1,84 @@
 import { Room } from "@colyseus/core";
 import { BotManager } from "../bots/BotManager.js";
 
-const MAX_PLAYERS        = 15;
+const MAX_PLAYERS          = 15;
 const MIN_PLAYERS_TO_START = 2;
-const COUNTDOWN_SECONDS  = 15;
+const COUNTDOWN_SECONDS    = 15;
+const MAX_LIVES            = 3;
 
+// ── Tempestade server-side (espelha StormSystem.ts do cliente) ────────────────
+// Usada apenas para passar posição/raio aos bots.
+class ServerStorm {
+  constructor(worldSize) {
+    this.worldSize     = worldSize;
+    this.isActive      = false;
+    this.currentRadius = worldSize;
+    this.currentX      = 0;
+    this.currentZ      = 0;
+    this.targetRadius  = worldSize;
+    this.targetX       = 0;
+    this.targetZ       = 0;
+    this.startRadius   = worldSize;
+    this.startX        = 0;
+    this.startZ        = 0;
+    this.phase         = "waiting";   // waiting | shrinking | paused
+    this.phaseTimer    = 20;          // 20s de espera inicial
+    this.stormStage    = 0;
+  }
+
+  start() {
+    this.isActive      = true;
+    this.currentRadius = this.worldSize * 0.7;
+    this.phase         = "waiting";
+    this.phaseTimer    = 20;
+    this._setNewTarget();
+  }
+
+  _setNewTarget() {
+    this.stormStage++;
+    this.startX      = this.currentX;
+    this.startZ      = this.currentZ;
+    this.startRadius = this.currentRadius;
+    this.targetRadius = this.stormStage >= 5 ? 15 : Math.max(15, this.currentRadius * 0.5);
+    const angle      = Math.random() * Math.PI * 2;
+    const maxOffset  = Math.max(0, this.currentRadius - this.targetRadius);
+    const r          = Math.random() * maxOffset;
+    this.targetX     = this.currentX + Math.cos(angle) * r;
+    this.targetZ     = this.currentZ + Math.sin(angle) * r;
+  }
+
+  update(dt) {
+    if (!this.isActive) return;
+    if (this.phase === "waiting") {
+      this.phaseTimer -= dt;
+      if (this.phaseTimer <= 0) { this.phase = "shrinking"; this.phaseTimer = 60; }
+    } else if (this.phase === "shrinking") {
+      this.phaseTimer -= dt;
+      const t = 1.0 - Math.max(0, this.phaseTimer) / 60;
+      this.currentRadius = this.startRadius + (this.targetRadius - this.startRadius) * t;
+      this.currentX      = this.startX      + (this.targetX      - this.startX)      * t;
+      this.currentZ      = this.startZ      + (this.targetZ      - this.startZ)      * t;
+      if (this.phaseTimer <= 0) { this.phase = "paused"; this.phaseTimer = this.stormStage >= 5 ? 9999 : 30; }
+    } else if (this.phase === "paused") {
+      this.phaseTimer -= dt;
+      if (this.phaseTimer <= 0 && this.stormStage < 5) { this._setNewTarget(); this.phase = "shrinking"; this.phaseTimer = 60; }
+    }
+  }
+
+  get state() { return { x: this.currentX, z: this.currentZ, radius: this.currentRadius }; }
+}
+
+// ── Nomes ─────────────────────────────────────────────────────────────────────
 const GHOST_PREFIXES = ["Recruta", "Agente", "Patrulheiro", "Combatente", "Caçador"];
-/** Nomes de fantasmas de lobby — distintos dos jogadores reais e dos bots de combate */
 function randomGuestName() {
   const prefix = GHOST_PREFIXES[Math.floor(Math.random() * GHOST_PREFIXES.length)];
   const num = Math.floor(Math.random() * 9999).toString().padStart(4, "0");
   return `${prefix}-${num}`;
 }
-
-// Gera IDs únicos para fantasmas do lobby
 let _ghostSeq = 0;
 function newGhostId() { return `ghost_${Date.now()}_${++_ghostSeq}`; }
 
+// ─────────────────────────────────────────────────────────────────────────────
 export class BattleRoom extends Room {
   countdownInterval   = null;
   countdownRemaining  = COUNTDOWN_SECONDS;
@@ -24,17 +86,21 @@ export class BattleRoom extends Room {
   playerNames         = new Map();
   playerSnapshots     = new Map();
   botManager          = null;
-
-  // Fantasmas de lobby: jogam apenas na lista de espera
-  lobbyGhosts         = new Map();  // ghostId → displayName
+  lobbyGhosts         = new Map();
   _lobbyGhostInterval = null;
   _firstPlayerTimer   = null;
 
+  // ── Vidas dos players humanos ────────────────────────────────────────────
+  playerLives         = new Map();   // sessionId → lives restantes
+  _eliminated         = new Set();   // players permanentemente eliminados
+  _serverStorm        = null;
+  _stormInterval      = null;
+
   onCreate() {
     this.maxClients = MAX_PLAYERS;
-    this.patchRate = 50;
+    this.patchRate  = 50;
 
-    // Snapshot periódico: limpa ghosts e sincroniza a cada 1s
+    // Snapshot periódico
     this.clock.setInterval(() => {
       if (this.clients.length > 0) {
         this.broadcast("players:snapshot", {
@@ -52,51 +118,47 @@ export class BattleRoom extends Room {
     });
 
     this.onMessage("player:hit", (client, message) => {
-      // Repassa dano para quem sofreu (e todos na real pra verem status, mas quem processa as consequências é o alvo)
       this.broadcast("player:took_damage", {
-        sessionId: message.targetId,
+        sessionId:  message.targetId,
         attackerId: client.sessionId,
-        damage: message.damage,
-        part: message.part
+        damage:     message.damage,
+        part:       message.part
       });
-      // Notifica o BotManager caso o alvo seja um bot
       this.botManager?.onPlayerHit(message.targetId, message.damage, message.part, client.sessionId);
     });
 
     this.onMessage("player:died", (client) => {
-      // Informa todos de que ele morreu, assim os avatares remotos despedaçam
-      this.broadcast("player:died", {
-        sessionId: client.sessionId
-      });
-      // Notifica bots para reagirem (largar alvo morto)
+      this.broadcast("player:died", { sessionId: client.sessionId });
       this.botManager?.onPlayerDied(client.sessionId);
+
+      // Desconta vida do jogador humano
+      const lives = (this.playerLives.get(client.sessionId) ?? MAX_LIVES) - 1;
+      this.playerLives.set(client.sessionId, lives);
+
+      if (lives <= 0) {
+        // Eliminado permanentemente
+        this._eliminated.add(client.sessionId);
+        this.broadcast("player:eliminated", { sessionId: client.sessionId });
+        this.checkWinCondition();
+      }
+      // (se lives > 0 o cliente faz o respawn por conta própria)
     });
 
     this.onMessage("player:update", (client, message) => {
-      if (this.lobbyPhase === "waiting") {
-        return;
-      }
-
+      if (this.lobbyPhase === "waiting") return;
       const player = this.playerSnapshots.get(client.sessionId);
-      if (!player) {
-        return;
-      }
-
-      player.x = Number(message.x) || 0;
-      player.y = Number(message.y) || 0;
-      player.z = Number(message.z) || 0;
-      player.yaw = Number(message.yaw) || 0;
-      player.pitch = Number(message.pitch) || 0;
-      player.walking = Boolean(message.walking);
-      player.armed = Boolean(message.armed);
+      if (!player) return;
+      player.x        = Number(message.x)        || 0;
+      player.y        = Number(message.y)        || 0;
+      player.z        = Number(message.z)        || 0;
+      player.yaw      = Number(message.yaw)      || 0;
+      player.pitch    = Number(message.pitch)    || 0;
+      player.walking  = Boolean(message.walking);
+      player.armed    = Boolean(message.armed);
       player.weaponId = typeof message.weaponId === "string" ? message.weaponId : "";
-      player.reloading = Boolean(message.reloading);
-      player.aiming = Boolean(message.aiming);
-
-      this.broadcast("player:update", {
-        sessionId: client.sessionId,
-        player
-      }, { except: client });
+      player.reloading= Boolean(message.reloading);
+      player.aiming   = Boolean(message.aiming);
+      this.broadcast("player:update", { sessionId: client.sessionId, player }, { except: client });
     });
   }
 
@@ -109,50 +171,35 @@ export class BattleRoom extends Room {
     const spawnDist  = 15 + Math.random() * 65;
     const player = {
       x: Math.cos(spawnAngle) * spawnDist,
-      y: 12,
-      z: Math.sin(spawnAngle) * spawnDist,
-      yaw: 0,
-      pitch: 0,
-      walking: false,
-      armed: false,
-      weaponId: "",
-      reloading: false,
-      aiming: false
+      y: 12, z: Math.sin(spawnAngle) * spawnDist,
+      yaw: 0, pitch: 0,
+      walking: false, armed: false, weaponId: "",
+      reloading: false, aiming: false
     };
 
     this.playerNames.set(client.sessionId, displayName);
     this.playerSnapshots.set(client.sessionId, player);
+    this.playerLives.set(client.sessionId, MAX_LIVES);
 
-    // Defer initial sync messages by one tick so the client finishes
-    // registering its onMessage handlers before these arrive.
     this.clock.setTimeout(() => {
       client.send("players:snapshot", {
         players: Array.from(this.playerSnapshots.entries()).map(([sessionId, snapshot]) => ({
-          sessionId,
-          player: snapshot,
+          sessionId, player: snapshot,
           displayName: this.playerNames.get(sessionId) || "Player"
         }))
       });
-
       this.broadcast("player:joined", {
-        sessionId: client.sessionId,
-        displayName,
-        player
+        sessionId: client.sessionId, displayName, player
       }, { except: client });
-
       this.broadcastLobbyState();
     }, 0);
 
     if (this.clients.length >= MAX_PLAYERS && this.lobbyPhase !== "active") {
-      this.startMatch();
-      return;
+      this.startMatch(); return;
     }
-
     if (this.clients.length >= MIN_PLAYERS_TO_START && this.lobbyPhase === "waiting") {
       this.beginCountdown();
     }
-
-    // Primeiro jogador real: agenda início gradual de ghost bots após 5s sozinho
     if (this.clients.length === 1 && this.lobbyPhase === "waiting" && !this._firstPlayerTimer) {
       this._firstPlayerTimer = this.clock.setTimeout(() => {
         this._firstPlayerTimer = null;
@@ -163,15 +210,17 @@ export class BattleRoom extends Room {
   }
 
   onLeave(client) {
-    // Sem janela de reconexão — remove imediatamente
     this.playerSnapshots.delete(client.sessionId);
     this.playerNames.delete(client.sessionId);
+    this.playerLives.delete(client.sessionId);
+    this._eliminated.delete(client.sessionId);
     this.broadcast("player:left", { sessionId: client.sessionId });
     this.broadcastLobbyState();
 
-    if (this.lobbyPhase === "active") return;
-
-    // Se não sobrou nenhum player real, cancela tudo e reseta fantasmas
+    if (this.lobbyPhase === "active") {
+      this.checkWinCondition();
+      return;
+    }
     if (this.clients.length === 0) {
       this.stopCountdown();
       this._stopLobbyGhostFill();
@@ -181,8 +230,6 @@ export class BattleRoom extends Room {
       this.broadcastLobbyState();
       return;
     }
-
-    // Conta reais + fantasmas para decidir se mantém countdown
     const visibleCount = this.clients.length + this.lobbyGhosts.size;
     if (visibleCount < MIN_PLAYERS_TO_START) {
       this.stopCountdown();
@@ -190,53 +237,38 @@ export class BattleRoom extends Room {
       this.broadcastLobbyState();
       return;
     }
-
-    if (!this.countdownInterval && this.lobbyPhase !== "active") {
-      this.beginCountdown();
-    }
+    if (!this.countdownInterval && this.lobbyPhase !== "active") this.beginCountdown();
   }
 
   onDispose() {
     this.stopCountdown();
     this._stopLobbyGhostFill();
+    this._stopStorm();
     if (this._firstPlayerTimer) { this._firstPlayerTimer.clear(); this._firstPlayerTimer = null; }
     this.lobbyGhosts.clear();
     this.botManager?.destroy();
   }
 
   beginCountdown() {
-    if (this.countdownInterval || this.lobbyPhase === "active") {
-      return;
-    }
-
-    this.lobbyPhase = "countdown";
+    if (this.countdownInterval || this.lobbyPhase === "active") return;
+    this.lobbyPhase         = "countdown";
     this.countdownRemaining = COUNTDOWN_SECONDS;
     this.broadcastLobbyState();
-
     this.countdownInterval = this.clock.setInterval(() => {
-      // Cancela só se não há nenhum player real (ghosts não contam para manter vivo)
       if (this.clients.length === 0) {
         this.stopCountdown();
         this.lobbyPhase = "waiting";
         this.broadcastLobbyState();
         return;
       }
-
       this.countdownRemaining -= 1;
       this.broadcastLobbyState();
-
-      if (this.countdownRemaining <= 0 || this.clients.length >= MAX_PLAYERS) {
-        this.startMatch();
-      }
+      if (this.countdownRemaining <= 0 || this.clients.length >= MAX_PLAYERS) this.startMatch();
     }, 1000);
   }
 
   stopCountdown() {
-    if (this.countdownInterval) {
-      this.countdownInterval.clear();
-      this.countdownInterval = null;
-    }
-
+    if (this.countdownInterval) { this.countdownInterval.clear(); this.countdownInterval = null; }
     this.countdownRemaining = COUNTDOWN_SECONDS;
   }
 
@@ -245,51 +277,88 @@ export class BattleRoom extends Room {
     this._stopLobbyGhostFill();
     this.lobbyPhase = "active";
     this.lock();
-
-    // Remove fantasmas de lobby — serão substituídos por bots reais de combate
     this.lobbyGhosts.clear();
-
-    this.broadcast("match:start", {
-      playerCount: this.clients.length
-    });
+    this.broadcast("match:start", { playerCount: this.clients.length });
     this.broadcastLobbyState();
 
-    // Reenvia snapshot completo a todos para garantir sincronização inicial
     const snapshot = {
       players: Array.from(this.playerSnapshots.entries()).map(([sessionId, player]) => ({
-        sessionId,
-        player,
+        sessionId, player,
         displayName: this.playerNames.get(sessionId) || "Player"
       }))
     };
     this.broadcast("players:snapshot", snapshot);
 
-    // Preenche com bots de combate até MAX_PLAYERS
+    // Inicia bots
     this.botManager = new BotManager(this);
     this.botManager.fillBots(MAX_PLAYERS);
+
+    // Inicia tempestade server-side (para guiar bots)
+    this._serverStorm = new ServerStorm(512);
+    this._serverStorm.start();
+    this._stormInterval = this.clock.setInterval(() => {
+      if (!this._serverStorm) return;
+      this._serverStorm.update(0.5); // tick a cada 500ms
+      const s = this._serverStorm.state;
+      this.botManager?.updateStorm(s.x, s.z, s.radius);
+    }, 500);
   }
 
-  // ── Preenchimento gradual de fantasmas no lobby ────────────────────────
+  _stopStorm() {
+    if (this._stormInterval) { this._stormInterval.clear(); this._stormInterval = null; }
+    this._serverStorm = null;
+  }
+
+  // ── Condição de vitória ───────────────────────────────────────────────────
+  checkWinCondition() {
+    if (this.lobbyPhase !== "active") return;
+
+    // Conta players humanos vivos (conectados e não eliminados)
+    const humanAlive = this.clients.filter(c => !this._eliminated.has(c.sessionId)).length;
+    // Conta bots vivos
+    const botAlive   = this.botManager?.aliveCount() ?? 0;
+    const totalAlive = humanAlive + botAlive;
+
+    if (totalAlive > 1) return; // partida ainda em andamento
+
+    // Encontra o vencedor
+    let winnerId   = null;
+    let winnerName = "Desconhecido";
+
+    if (humanAlive === 1) {
+      const winner = this.clients.find(c => !this._eliminated.has(c.sessionId));
+      if (winner) {
+        winnerId   = winner.sessionId;
+        winnerName = this.playerNames.get(winner.sessionId) ?? winnerName;
+      }
+    } else if (botAlive === 1 && this.botManager) {
+      for (const [id, bot] of this.botManager.bots) {
+        if (!bot.eliminated && !bot.isDead) {
+          winnerId   = id;
+          winnerName = this.playerNames.get(id) ?? bot.displayName ?? "Bot";
+          break;
+        }
+      }
+    }
+
+    this.broadcast("match:winner", { sessionId: winnerId, displayName: winnerName });
+    console.log(`[BattleRoom] match:winner → ${winnerName} (${winnerId})`);
+  }
+
+  // ── Callback chamado pelo BotManager quando um bot é eliminado ────────────
+  onBotEliminated(_botId) {
+    this.checkWinCondition();
+  }
+
+  // ── Lobby ghosts ──────────────────────────────────────────────────────────
   _startLobbyGhostFill() {
     if (this._lobbyGhostInterval) return;
-
-    // Adiciona 1 imediatamente para disparar o countdown (se ainda estava em waiting)
     this._addLobbyGhost();
-
-    // Intervalo fixo de 1s — a cadência é controlada dentro do callback
     this._lobbyGhostInterval = this.clock.setInterval(() => {
       if (this.lobbyPhase === "active") { this._stopLobbyGhostFill(); return; }
-
-      const total     = this.clients.length + this.lobbyGhosts.size;
-      const remaining = this.countdownRemaining;
-
-      // Sala cheia
+      const total = this.clients.length + this.lobbyGhosts.size;
       if (total >= MAX_PLAYERS) { this._stopLobbyGhostFill(); return; }
-
-      // Cadência progressiva — nunca preenche tudo de uma vez:
-      // > 10s restantes  → ~30% de chance de entrar 1 neste segundo
-      // 6-10s restantes  → ~55% de chance
-      // ≤ 5s restantes   → ~85% de chance (sempre gradual)
+      const remaining = this.countdownRemaining;
       const chance = remaining <= 5 ? 0.85 : remaining <= 10 ? 0.55 : 0.30;
       if (Math.random() < chance) this._addLobbyGhost();
     }, 1000);
@@ -298,23 +367,15 @@ export class BattleRoom extends Room {
   _addLobbyGhost() {
     const total = this.clients.length + this.lobbyGhosts.size;
     if (total >= MAX_PLAYERS || this.lobbyPhase === "active") return;
-
     const id   = newGhostId();
     const name = randomGuestName();
     this.lobbyGhosts.set(id, name);
     this.broadcastLobbyState();
-
-    // Se tinha só 1 jogador real, o ghost dispara o countdown
-    if (this.clients.length >= 1 && this.lobbyPhase === "waiting") {
-      this.beginCountdown();
-    }
+    if (this.clients.length >= 1 && this.lobbyPhase === "waiting") this.beginCountdown();
   }
 
   _stopLobbyGhostFill() {
-    if (this._lobbyGhostInterval) {
-      this._lobbyGhostInterval.clear();
-      this._lobbyGhostInterval = null;
-    }
+    if (this._lobbyGhostInterval) { this._lobbyGhostInterval.clear(); this._lobbyGhostInterval = null; }
   }
 
   broadcastLobbyState() {
