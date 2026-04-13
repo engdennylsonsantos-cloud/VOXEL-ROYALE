@@ -1,0 +1,16 @@
+{
+  "name": "backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "@colyseus/core": "^0.17.39",
+    "@colyseus/schema": "^4.0.19",
+    "@colyseus/ws-transport": "^0.17.11",
+    "@supabase/supabase-js": "^2.102.1",
+    "express": "^5.2.1"
+  }
+}

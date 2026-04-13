@@ -1,0 +1,15 @@
+{
+  "name": "voxel-battle-royale",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev:frontend",
+    "dev:frontend": "node scripts/run-workspace-script.cjs frontend dev",
+    "build:frontend": "node scripts/run-workspace-script.cjs frontend build",
+    "dev:backend": "node scripts/run-workspace-script.cjs backend dev"
+  }
+}

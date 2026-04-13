@@ -1,0 +1,32 @@
+# render.yaml — Infraestrutura do backend no Render.com
+# Render lê este arquivo automaticamente ao conectar o repositório.
+# Docs: https://render.com/docs/infrastructure-as-code
+
+services:
+  - type: web
+    name: voxel-royale-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/index.js
+    healthCheckPath: /health
+
+    # Plano free (tem sleep após 15 min de inatividade)
+    # Trocar para "starter" ($7/mês) para ficaar sempre ligado
+    plan: free
+
+    envVars:
+      # PORT é injetado automaticamente pelo Render — não precisa setar
+      - key: NODE_ENV
+        value: production
+
+      # CORS_ORIGIN: URL do frontend no Vercel (preencher após o deploy do frontend)
+      # Ex: https://voxel-royale.vercel.app
+      - key: CORS_ORIGIN
+        sync: false   # indica que você vai preencher manualmente no painel
+
+      # Supabase — preencher manualmente no painel do Render
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
