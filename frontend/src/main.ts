@@ -25,11 +25,18 @@ launcher.innerHTML = `
   <div class="launcher__backdrop"></div>
   <div class="launcher__content">
     <section class="launcher__hero">
-      <span class="launcher__eyebrow">HTML5 · Multiplayer · Guest Friendly</span>
-      <h1 class="launcher__title">VOXEL ROYALE</h1>
-      <p class="launcher__subtitle">Entre sem login, jogue na hora e depois salve skins, VIP e progresso na sua conta.</p>
+      <span class="launcher__eyebrow">🎮 Battle Royale · Multiplayer · Sem Download</span>
+      <h1 class="launcher__title">VOXEL<br>ROYALE</h1>
+      <p class="launcher__subtitle">15 jogadores, tempestade, armas e bots IA. Jogue agora no navegador — sem login, sem espera.</p>
+      <div class="launcher__feature-pills">
+        <span>🪖 15 Jogadores</span>
+        <span>🌀 Tempestade</span>
+        <span>🤖 Bots IA</span>
+        <span>📱 Mobile</span>
+        <span>🆓 Grátis</span>
+      </div>
       <div class="launcher__actions">
-        <button id="btn-play" class="launcher__button launcher__button--primary">Procurar Partida</button>
+        <button id="btn-play" class="launcher__button launcher__button--primary">⚡ Jogar Agora</button>
         <button id="btn-login" class="launcher__button launcher__button--secondary">Entrar com Google</button>
         <button id="btn-logout" class="launcher__button launcher__button--ghost" hidden>Sair</button>
       </div>
@@ -38,21 +45,21 @@ launcher.innerHTML = `
     <section class="launcher__panel">
       <div class="launcher__status">
         <div>
-          <span class="launcher__label">Sessao</span>
+          <span class="launcher__label">👤 Sessão</span>
           <strong id="session-name">Conectando...</strong>
         </div>
         <div>
-          <span class="launcher__label">Anuncios</span>
+          <span class="launcher__label">📢 Anúncios</span>
           <strong id="ads-status">Verificando...</strong>
         </div>
         <div>
-          <span class="launcher__label">Plano</span>
+          <span class="launcher__label">⭐ Plano</span>
           <strong id="vip-status">Carregando...</strong>
         </div>
       </div>
       <div>
-        <div class="launcher__panel-title">Loja de skins</div>
-        <div class="launcher__panel-subtitle">Skins e VIP ficam no Supabase. Stripe e Google Ads entram depois sem refazer a base.</div>
+        <div class="launcher__panel-title">🎨 Loja de Skins</div>
+        <div class="launcher__panel-subtitle">Personalize seu personagem. Skins e VIP ficam salvos na sua conta.</div>
       </div>
       <div id="shop-grid" class="shop-grid"></div>
     </section>

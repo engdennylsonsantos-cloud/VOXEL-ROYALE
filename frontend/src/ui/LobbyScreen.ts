@@ -2,6 +2,17 @@ import type { LobbyStatus } from "../network/MultiplayerClient";
 
 const MAX_PLAYERS = 15;
 
+const TIPS = [
+  "💡 Use o joystick esquerdo para se mover e o lado direito para girar a câmera.",
+  "⚡ Fique dentro da tempestade ou você perderá HP rapidamente!",
+  "🪂 Salte do avião cedo para chegar a locais com melhores armas.",
+  "🎯 Headshots causam mais dano — mire na cabeça!",
+  "🔄 Você tem 3 vidas — use cada uma com sabedoria.",
+  "🤖 Os bots também fogem da tempestade. Use isso a seu favor!",
+  "🔫 Recarregue (R) antes de entrar em combate.",
+  "🏆 O último sobrevivente vence. Boa sorte!",
+];
+
 export class LobbyScreen {
   readonly root: HTMLDivElement;
 
@@ -12,6 +23,8 @@ export class LobbyScreen {
   private readonly cancelBtn: HTMLButtonElement;
 
   private onCancelCb?: () => void;
+  private tipInterval?: ReturnType<typeof setInterval>;
+  private tipIndex = Math.floor(Math.random() * TIPS.length);
 
   constructor() {
     this.root = document.createElement("div");
@@ -22,7 +35,7 @@ export class LobbyScreen {
       <div class="lobby-screen__content">
 
         <div class="lobby-screen__header">
-          <span class="lobby-screen__eyebrow">VOXEL ROYALE · MATCHMAKING</span>
+          <span class="lobby-screen__eyebrow">⚡ VOXEL ROYALE · MATCHMAKING</span>
           <h1 class="lobby-screen__title">Sala de Espera</h1>
         </div>
 
@@ -46,12 +59,14 @@ export class LobbyScreen {
           </div>
         </div>
 
+        <div class="lobby-screen__tip" id="lobby-tip"></div>
+
         <div class="lobby-screen__roster-wrap">
           <div class="lobby-screen__roster-title">Jogadores na sala</div>
           <div class="lobby-screen__roster" id="lobby-roster"></div>
         </div>
 
-        <button class="lobby-screen__cancel" id="lobby-cancel">Cancelar</button>
+        <button class="lobby-screen__cancel" id="lobby-cancel">✕ Cancelar</button>
       </div>
     `;
 
@@ -61,14 +76,27 @@ export class LobbyScreen {
     this.rosterGrid = this.root.querySelector("#lobby-roster")!;
     this.cancelBtn = this.root.querySelector("#lobby-cancel")!;
 
+    const tipEl = this.root.querySelector<HTMLElement>("#lobby-tip")!;
+    tipEl.textContent = TIPS[this.tipIndex];
+
     this.cancelBtn.addEventListener("click", () => {
       this.onCancelCb?.();
     });
+
+    // Rotate tips every 5s while visible
+    this.tipInterval = setInterval(() => {
+      if (this.root.hidden) return;
+      this.tipIndex = (this.tipIndex + 1) % TIPS.length;
+      tipEl.style.opacity = "0";
+      setTimeout(() => {
+        tipEl.textContent = TIPS[this.tipIndex];
+        tipEl.style.opacity = "1";
+      }, 300);
+    }, 5000);
   }
 
   show(): void {
     this.root.hidden = false;
-    // Trigger entrance animation
     requestAnimationFrame(() => {
       this.root.classList.add("lobby-screen--visible");
     });

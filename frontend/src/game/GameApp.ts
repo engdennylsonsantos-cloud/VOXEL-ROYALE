@@ -1132,6 +1132,13 @@ export class GameApp {
     if (this.input.isPressed("KeyD") || this.input.isPressed("ArrowRight")) this.moveDirection.add(this.rightDirection);
     if (this.input.isPressed("KeyA") || this.input.isPressed("ArrowLeft")) this.moveDirection.sub(this.rightDirection);
 
+    // Mobile: joystick steering during skydive/parachute
+    if (this.touchControls) {
+      const tc = this.touchControls;
+      if (Math.abs(tc.moveZ) > 0.05) this.moveDirection.addScaledVector(this.forwardDirection, -tc.moveZ);
+      if (Math.abs(tc.moveX) > 0.05) this.moveDirection.addScaledVector(this.rightDirection,   tc.moveX);
+    }
+
     const steer = this.gamePhase === "parachute" ? CHUTE_STEER : SKYDIVE_STEER;
     if (this.moveDirection.lengthSq() > 0) {
       this.moveDirection.normalize().multiplyScalar(steer);
@@ -1185,7 +1192,7 @@ export class GameApp {
     if (altEl)   altEl.textContent = `Altitude: ${Math.round(this.introPos.y - introLandY)} m acima do solo`;
     if (labelEl) labelEl.textContent =
       this.gamePhase === "parachute"
-        ? "🪂 Paraquedas aberto — WASD para dirigir"
+        ? (this.isMobile ? "🪂 Paraquedas — joystick para dirigir" : "🪂 Paraquedas aberto — WASD para dirigir")
         : this.isMobile
           ? "Queda livre — toque ↑ para abrir paraquedas"
           : "Queda livre — ESPAÇO para abrir paraquedas";
