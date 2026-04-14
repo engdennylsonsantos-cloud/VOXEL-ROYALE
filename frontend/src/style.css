@@ -1001,4 +1001,12 @@ body {
     right: 12px !important;
     font-size: 18px !important;
   }
+
+  /* HUD de saúde/vidas menor no mobile */
+  .health-hud {
+    font-size: 14px !important;
+  }
+  .lives-hud {
+    font-size: 11px !important;
+  }
 }

@@ -225,7 +225,7 @@ export class GameApp {
     // ── HUD avião ─────────────────────────────────────────────────────────
     this.introHUD.className = "intro-hud";
     this.introHUD.innerHTML =
-      "<span class='intro-label'>ESPAÇO para saltar do avião</span>" +
+      `<span class='intro-label'>${this.isMobile ? "Toque ↑ para saltar do avião" : "ESPAÇO para saltar do avião"}</span>` +
       "<span class='intro-alt'></span>";
     this.hud.append(this.introHUD);
     this.lobbyHUD.className = "match-lobby";
@@ -260,6 +260,7 @@ export class GameApp {
 
     // ── Vida em Corações ──────────────────────────────────────────────────
     this.healthHUD.className  = "health-hud";
+    this.livesHUD.className   = "lives-hud";
     this.rescueHUD.className  = "rescue-hud";
     this.dmgIndicator.className = "damage-indicator";
     this.dmgIndicator.width = 500;
@@ -1107,7 +1108,17 @@ export class GameApp {
       this.controls.object.position.set(this.introPos.x - 30, this.introPos.y + 12, this.introPos.z);
       const altEl = this.introHUD.querySelector(".intro-alt");
       if (altEl) altEl.textContent = `Altitude: ${Math.round(PLANE_ALTITUDE)} m`;
+      // Mobile: jump button ejects from plane
+      if (this.touchControls?.isJumpJustPressed) {
+        this.gamePhase = "skydiving";
+        this.introPos.copy(this.planePos);
+        this.introVel.set(PLANE_SPEED * 0.3, 0, 0);
+      }
       return;
+    }
+    // Mobile: jump button deploys parachute during skydive
+    if (this.gamePhase === "skydiving" && this.touchControls?.isJumpJustPressed) {
+      this.deployParachute();
     }
 
     this.camera.getWorldDirection(this.cameraDirection);
@@ -1175,7 +1186,9 @@ export class GameApp {
     if (labelEl) labelEl.textContent =
       this.gamePhase === "parachute"
         ? "🪂 Paraquedas aberto — WASD para dirigir"
-        : "Queda livre — ESPAÇO para abrir paraquedas";
+        : this.isMobile
+          ? "Queda livre — toque ↑ para abrir paraquedas"
+          : "Queda livre — ESPAÇO para abrir paraquedas";
   }
 
   private deployParachute(): void {

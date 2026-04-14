@@ -507,7 +507,7 @@ export class BotManager {
       const jumpDelay = 2 + Math.random() * 23;
       // Destino de aterrissagem aleatório
       const angle     = Math.random() * Math.PI * 2;
-      const dist      = 20 + Math.random() * 100;
+      const dist      = 20 + Math.random() * 60;
       const jumpX     = Math.cos(angle) * dist;
       const jumpZ     = Math.sin(angle) * dist;
 

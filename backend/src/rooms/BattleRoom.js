@@ -69,7 +69,7 @@ class ServerStorm {
 }
 
 // ── Nomes ─────────────────────────────────────────────────────────────────────
-const GHOST_PREFIXES = ["Recruta", "Agente", "Patrulheiro", "Combatente", "Caçador"];
+const GHOST_PREFIXES = ["Convidado"];
 function randomGuestName() {
   const prefix = GHOST_PREFIXES[Math.floor(Math.random() * GHOST_PREFIXES.length)];
   const num = Math.floor(Math.random() * 9999).toString().padStart(4, "0");
